@@ -51,6 +51,14 @@ const ControllerState& get_state(int hand);
 /** Pack both controllers into the 64-byte CONTROLLER_STATE payload. */
 void pack_payload(uint8_t* out);
 
+/**
+ * Apply haptic vibration to a controller.
+ * hand: 0=left, 1=right.
+ * intensity: 0.0–1.0.
+ * duration_ms: vibration duration in milliseconds (0 = stop).
+ */
+void apply_haptic(XrSession session, int hand, float intensity, float duration_ms);
+
 /** Clean up action-related resources. */
 void destroy(XrInstance instance);
 

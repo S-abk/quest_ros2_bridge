@@ -33,6 +33,7 @@ static XrAction btn_x_a_action = XR_NULL_HANDLE;
 static XrAction btn_y_b_action = XR_NULL_HANDLE;
 static XrAction btn_menu_action = XR_NULL_HANDLE;
 static XrAction btn_thumbstick_action = XR_NULL_HANDLE;
+static XrAction haptic_action = XR_NULL_HANDLE;
 
 static XrSpace hand_spaces[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
 static XrPath hand_paths[2];
@@ -77,6 +78,8 @@ XrResult init(XrInstance instance, XrSession session) {
                            XR_ACTION_TYPE_BOOLEAN_INPUT, &btn_menu_action));
     XR_CHECK(create_action(action_set, "btn_thumbstick", "Thumbstick Click",
                            XR_ACTION_TYPE_BOOLEAN_INPUT, &btn_thumbstick_action));
+    XR_CHECK(create_action(action_set, "haptic", "Haptic Vibration",
+                           XR_ACTION_TYPE_VIBRATION_OUTPUT, &haptic_action));
 
     // Suggest interaction profile: Oculus Touch
     XrPath touch_profile;
@@ -102,6 +105,8 @@ XrResult init(XrInstance instance, XrSession session) {
         {btn_menu_action,      path("/user/hand/left/input/menu/click")},
         {btn_thumbstick_action, path("/user/hand/left/input/thumbstick/click")},
         {btn_thumbstick_action, path("/user/hand/right/input/thumbstick/click")},
+        {haptic_action,         path("/user/hand/left/output/haptic")},
+        {haptic_action,         path("/user/hand/right/output/haptic")},
     };
 
     XrInteractionProfileSuggestedBinding suggested{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
@@ -208,6 +213,27 @@ void pack_payload(uint8_t* out) {
             protocol::float_to_be(pose[i], p + 4 + i * 4);
         }
     }
+}
+
+void apply_haptic(XrSession session, int hand, float intensity, float duration_ms) {
+    if (hand < 0 || hand > 1) return;
+
+    XrHapticActionInfo haptic_info{XR_TYPE_HAPTIC_ACTION_INFO};
+    haptic_info.action = haptic_action;
+    haptic_info.subactionPath = hand_paths[hand];
+
+    if (intensity <= 0.0f) {
+        xrStopHapticFeedback(session, &haptic_info);
+        return;
+    }
+
+    XrHapticVibration vibration{XR_TYPE_HAPTIC_VIBRATION};
+    vibration.amplitude = intensity;
+    vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+    vibration.duration = static_cast<XrDuration>(duration_ms * 1000000.0f);  // ms → ns
+
+    xrApplyHapticFeedback(session, &haptic_info,
+                          reinterpret_cast<XrHapticBaseHeader*>(&vibration));
 }
 
 void destroy(XrInstance instance) {

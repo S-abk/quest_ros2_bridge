@@ -298,6 +298,18 @@ static void render_frame() {
         g.ws_server.send_controller_state(ctrl_payload);
     }
 
+    // Apply haptic feedback from WS commands
+    float h_left = g.ws_server.haptic_left.exchange(0.0f);
+    float h_right = g.ws_server.haptic_right.exchange(0.0f);
+    float h_left_dur = g.ws_server.haptic_left_duration.exchange(0.0f);
+    float h_right_dur = g.ws_server.haptic_right_duration.exchange(0.0f);
+    if (h_left > 0.0f) {
+        xr_controller::apply_haptic(g.session, 0, h_left, h_left_dur);
+    }
+    if (h_right > 0.0f) {
+        xr_controller::apply_haptic(g.session, 1, h_right, h_right_dur);
+    }
+
     std::vector<XrCompositionLayerBaseHeader*> layers;
 
     XrCompositionLayerProjection projection_layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
