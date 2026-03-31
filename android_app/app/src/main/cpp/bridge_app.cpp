@@ -1,6 +1,5 @@
 /**
- * Main OpenXR app — session lifecycle + blank render loop.
- * Commit 1b scaffold: no controller input or rendering yet.
+ * Main OpenXR app — session lifecycle, controller input, WebSocket bridge.
  */
 
 #include <jni.h>
@@ -14,6 +13,8 @@
 #include <openxr/openxr_platform.h>
 
 #include "ws_server.h"
+#include "xr_controller.h"
+#include "protocol.h"
 
 #include <cstring>
 #include <string>
@@ -279,7 +280,7 @@ static void poll_events() {
 }
 
 // ---------------------------------------------------------------------------
-// Render frame (blank — scaffold only)
+// Render frame
 // ---------------------------------------------------------------------------
 static void render_frame() {
     XrFrameWaitInfo wait_info{XR_TYPE_FRAME_WAIT_INFO};
@@ -288,6 +289,14 @@ static void render_frame() {
 
     XrFrameBeginInfo begin_info{XR_TYPE_FRAME_BEGIN_INFO};
     xrBeginFrame(g.session, &begin_info);
+
+    // Poll controllers and send state over WebSocket
+    xr_controller::update(g.session, g.app_space, frame_state.predictedDisplayTime);
+    if (g.ws_server.has_client()) {
+        uint8_t ctrl_payload[protocol::CONTROLLER_STATE_SIZE];
+        xr_controller::pack_payload(ctrl_payload);
+        g.ws_server.send_controller_state(ctrl_payload);
+    }
 
     std::vector<XrCompositionLayerBaseHeader*> layers;
 
@@ -387,6 +396,11 @@ static void main_loop() {
         return;
     }
 
+    // Initialize controller input
+    if (XR_FAILED(xr_controller::init(g.instance, g.session))) {
+        LOGW("Controller init failed — continuing without controller input");
+    }
+
     // Start WebSocket server
     g.ws_server.start(9090);
 
@@ -399,6 +413,7 @@ static void main_loop() {
 
     // Cleanup
     g.ws_server.stop();
+    xr_controller::destroy(g.instance);
 
     if (!g.framebuffers.empty()) {
         glDeleteFramebuffers(static_cast<GLsizei>(g.framebuffers.size()), g.framebuffers.data());

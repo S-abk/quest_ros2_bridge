@@ -27,6 +27,7 @@ set(USOCKETS_SOURCES
 add_library(quest_ros2_bridge SHARED
     bridge_app.cpp
     ws_server.cpp
+    xr_controller.cpp
     ${USOCKETS_SOURCES}
 )
 
