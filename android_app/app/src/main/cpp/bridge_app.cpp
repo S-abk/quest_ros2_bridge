@@ -14,6 +14,7 @@
 
 #include "ws_server.h"
 #include "xr_controller.h"
+#include "camera_renderer.h"
 #include "protocol.h"
 
 #include <cstring>
@@ -370,6 +371,13 @@ static void render_frame() {
         layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&projection_layer));
     }
 
+    // Add camera quad layer if a frame has been received
+    XrCompositionLayerQuad camera_quad;
+    if (camera_renderer::has_frame() &&
+        camera_renderer::get_quad_layer(camera_quad, g.app_space)) {
+        layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&camera_quad));
+    }
+
     XrFrameEndInfo end_info{XR_TYPE_FRAME_END_INFO};
     end_info.displayTime = frame_state.predictedDisplayTime;
     end_info.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -408,6 +416,9 @@ static void main_loop() {
         return;
     }
 
+    // Initialize camera renderer
+    camera_renderer::init();
+
     // Initialize controller input
     if (XR_FAILED(xr_controller::init(g.instance, g.session))) {
         LOGW("Controller init failed — continuing without controller input");
@@ -426,6 +437,7 @@ static void main_loop() {
     // Cleanup
     g.ws_server.stop();
     xr_controller::destroy(g.instance);
+    camera_renderer::destroy();
 
     if (!g.framebuffers.empty()) {
         glDeleteFramebuffers(static_cast<GLsizei>(g.framebuffers.size()), g.framebuffers.data());

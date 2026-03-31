@@ -7,8 +7,11 @@ import threading
 
 import rclpy
 from rclpy.node import Node
+import numpy as np
+import cv2
+
 from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import Joy
+from sensor_msgs.msg import Joy, Image
 
 from .protocol import (
     MsgType,
@@ -51,6 +54,13 @@ class BridgeNode(Node):
         self._sub_haptic_right = self.create_subscription(
             Float32, "/oculus/haptic/right", self._haptic_right_cb, 10)
 
+        # Image subscriber for camera panel
+        image_topic = self.get_parameter("image_topic").value
+        self._jpeg_quality = self.get_parameter("jpeg_quality").value
+        self._max_width = self.get_parameter("max_width").value
+        self._sub_image = self.create_subscription(
+            Image, image_topic, self._image_cb, 10)
+
         # Send queue for haptic/camera commands
         self._send_queue = asyncio.Queue()
 
@@ -64,6 +74,49 @@ class BridgeNode(Node):
             self._send_queue.put_nowait(frame)
         except asyncio.QueueFull:
             pass
+
+    def _image_cb(self, msg):
+        """Convert ROS Image to JPEG and queue as CAMERA_FRAME."""
+        try:
+            # Decode image data
+            h, w = msg.height, msg.width
+            encoding = msg.encoding.lower()
+
+            if encoding in ("rgb8",):
+                img = np.frombuffer(msg.data, dtype=np.uint8).reshape(h, w, 3)
+            elif encoding in ("bgr8",):
+                raw = np.frombuffer(msg.data, dtype=np.uint8).reshape(h, w, 3)
+                img = cv2.cvtColor(raw, cv2.COLOR_BGR2RGB)
+            elif encoding in ("mono8",):
+                raw = np.frombuffer(msg.data, dtype=np.uint8).reshape(h, w)
+                img = cv2.cvtColor(raw, cv2.COLOR_GRAY2RGB)
+            else:
+                self.get_logger().warning(
+                    f"Unsupported image encoding: {msg.encoding}", throttle_duration_sec=5.0)
+                return
+
+            # Downscale if needed
+            if w > self._max_width:
+                scale = self._max_width / w
+                new_w = self._max_width
+                new_h = int(h * scale)
+                img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+            # Encode as JPEG (cv2 expects BGR)
+            bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            _, jpeg_buf = cv2.imencode(
+                ".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality])
+            jpeg_bytes = jpeg_buf.tobytes()
+
+            frame = pack_message(MsgType.CAMERA_FRAME, jpeg_bytes)
+            try:
+                self._send_queue.put_nowait(frame)
+            except asyncio.QueueFull:
+                pass
+
+        except Exception as e:
+            self.get_logger().warning(
+                f"Image processing error: {e}", throttle_duration_sec=5.0)
 
     def _haptic_right_cb(self, msg):
         """Queue a haptic command for the right controller."""

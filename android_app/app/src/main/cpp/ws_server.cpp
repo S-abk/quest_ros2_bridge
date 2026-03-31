@@ -5,6 +5,7 @@
 
 #include "ws_server.h"
 #include "protocol.h"
+#include "camera_renderer.h"
 
 #include <libusockets.h>  // us_listen_socket_t, us_listen_socket_close
 #include <App.h>          // uWebSockets
@@ -109,7 +110,9 @@ void Server::run(int port) {
                     haptic_right_duration.store(duration);
                 }
             }
-            // CAMERA_FRAME handled in Commit 4
+            if (type == protocol::MsgType::CAMERA_FRAME && payload_len > 0) {
+                camera_renderer::update_frame(payload, payload_len);
+            }
         },
         .close = [this](auto* ws, int code, std::string_view message) {
             LOGI("Client disconnected (code=%d)", code);
