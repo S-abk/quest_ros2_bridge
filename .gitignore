@@ -1,0 +1,12 @@
+# Android build artifacts
+local.properties
+android_app/.gradle/
+android_app/app/build/
+android_app/app/.cxx/
+android_app/build/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
