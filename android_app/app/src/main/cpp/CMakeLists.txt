@@ -29,6 +29,7 @@ add_library(quest_ros2_bridge SHARED
     ws_server.cpp
     xr_controller.cpp
     camera_renderer.cpp
+    xr_hand_tracking.cpp
     ${USOCKETS_SOURCES}
 )
 

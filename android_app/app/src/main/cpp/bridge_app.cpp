@@ -14,6 +14,7 @@
 
 #include "ws_server.h"
 #include "xr_controller.h"
+#include "xr_hand_tracking.h"
 #include "camera_renderer.h"
 #include "protocol.h"
 
@@ -299,6 +300,19 @@ static void render_frame() {
         g.ws_server.send_controller_state(ctrl_payload);
     }
 
+    // Update and send hand tracking data
+    xr_hand_tracking::update(g.app_space, frame_state.predictedDisplayTime);
+    if (g.ws_server.has_client()) {
+        for (int hand = 0; hand < 2; ++hand) {
+            if (xr_hand_tracking::is_active(hand)) {
+                uint8_t hand_payload[protocol::HAND_STATE_SIZE];
+                if (xr_hand_tracking::pack_payload(hand, hand_payload) > 0) {
+                    g.ws_server.send_hand_state(hand_payload);
+                }
+            }
+        }
+    }
+
     // Apply haptic feedback from WS commands
     float h_left = g.ws_server.haptic_left.exchange(0.0f);
     float h_right = g.ws_server.haptic_right.exchange(0.0f);
@@ -424,6 +438,11 @@ static void main_loop() {
         LOGW("Controller init failed — continuing without controller input");
     }
 
+    // Initialize hand tracking (optional extension)
+    if (!xr_hand_tracking::init(g.instance, g.session)) {
+        LOGW("Hand tracking not available — continuing without hand tracking");
+    }
+
     // Start WebSocket server
     g.ws_server.start(9090);
 
@@ -436,6 +455,7 @@ static void main_loop() {
 
     // Cleanup
     g.ws_server.stop();
+    xr_hand_tracking::destroy();
     xr_controller::destroy(g.instance);
     camera_renderer::destroy();
 

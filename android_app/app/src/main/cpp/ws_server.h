@@ -38,6 +38,13 @@ public:
     void send_controller_state(const uint8_t* payload);
 
     /**
+     * Queue a HAND_STATE message to send to the connected client.
+     * payload must be exactly HAND_STATE_SIZE (729) bytes.
+     * Thread-safe — called from the render thread.
+     */
+    void send_hand_state(const uint8_t* payload);
+
+    /**
      * Haptic intensities written by the WS recv handler, read by the render thread.
      */
     std::atomic<float> haptic_left{0.0f};

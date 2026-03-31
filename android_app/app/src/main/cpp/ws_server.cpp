@@ -13,7 +13,8 @@
 #include <android/log.h>
 
 #include <cstring>
-#include <functional>
+#include <memory>
+#include <vector>
 
 #define LOG_TAG "QuestBridge_WS"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -69,6 +70,25 @@ void Server::send_controller_state(const uint8_t* payload) {
                 uWS::BINARY);
         });
     }
+}
+
+void Server::send_hand_state(const uint8_t* payload) {
+    if (!loop_ || !active_ws_) return;
+
+    // Copy payload into a vector for the deferred callback
+    auto buf = std::make_shared<std::vector<uint8_t>>(
+        protocol::HEADER_SIZE + protocol::HAND_STATE_SIZE);
+    protocol::write_header(buf->data(), protocol::MsgType::HAND_STATE,
+                           protocol::HAND_STATE_SIZE);
+    std::memcpy(buf->data() + protocol::HEADER_SIZE, payload,
+                protocol::HAND_STATE_SIZE);
+
+    loop_->defer([this, buf]() {
+        if (!active_ws_) return;
+        active_ws_->send(
+            std::string_view(reinterpret_cast<char*>(buf->data()), buf->size()),
+            uWS::BINARY);
+    });
 }
 
 void Server::run(int port) {

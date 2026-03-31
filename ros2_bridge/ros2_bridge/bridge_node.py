@@ -11,18 +11,49 @@ import numpy as np
 import cv2
 
 from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import Joy, Image
+from sensor_msgs.msg import Joy, Image, JointState
 
 from .protocol import (
     MsgType,
     HEADER_SIZE,
     CONTROLLER_STATE_SIZE,
     CONTROLLER_BLOCK_SIZE,
+    HAND_STATE_SIZE,
     POSE_SIZE,
     pack_message,
     unpack_header,
     unpack_controller_state,
+    unpack_hand_state,
 )
+
+HAND_JOINT_NAMES = [
+    "palm",
+    "wrist",
+    "thumb_metacarpal",
+    "thumb_proximal",
+    "thumb_distal",
+    "thumb_tip",
+    "index_metacarpal",
+    "index_proximal",
+    "index_intermediate",
+    "index_distal",
+    "index_tip",
+    "middle_metacarpal",
+    "middle_proximal",
+    "middle_intermediate",
+    "middle_distal",
+    "middle_tip",
+    "ring_metacarpal",
+    "ring_proximal",
+    "ring_intermediate",
+    "ring_distal",
+    "ring_tip",
+    "little_metacarpal",
+    "little_proximal",
+    "little_intermediate",
+    "little_distal",
+    "little_tip",
+]
 
 import websockets
 
@@ -41,13 +72,16 @@ class BridgeNode(Node):
 
         self._port = self.get_parameter("port").value
 
+        self._publish_hands = self.get_parameter("publish_hands").value
+
         # Publishers
         self._pub_left_pose = self.create_publisher(PoseStamped, "/oculus/left/pose", 10)
         self._pub_right_pose = self.create_publisher(PoseStamped, "/oculus/right/pose", 10)
         self._pub_buttons = self.create_publisher(Joy, "/oculus/buttons", 10)
+        self._pub_left_hand = self.create_publisher(JointState, "/oculus/left/hand", 10)
+        self._pub_right_hand = self.create_publisher(JointState, "/oculus/right/hand", 10)
 
-        # Subscribers for haptics (Commit 3 will use these)
-        # Placeholders registered now so test_node_import can verify them
+        # Subscribers for haptics
         from std_msgs.msg import Float32
         self._sub_haptic_left = self.create_subscription(
             Float32, "/oculus/haptic/left", self._haptic_left_cb, 10)
@@ -172,6 +206,35 @@ class BridgeNode(Node):
         joy.buttons = [int(b) for b in buttons]
         self._pub_buttons.publish(joy)
 
+    def publish_hand_state(self, payload: bytes):
+        """Decode a HAND_STATE payload and publish to ROS 2 as JointState."""
+        if not self._publish_hands:
+            return
+
+        hand_id, joints = unpack_hand_state(payload)
+        pub = self._pub_left_hand if hand_id == 0 else self._pub_right_hand
+
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "quest_world"
+        msg.name = list(HAND_JOINT_NAMES)
+
+        # Store pose data in position field (x, y, z per joint)
+        # and orientation as (qx, qy, qz, qw) interleaved in velocity/effort
+        msg.position = []
+        msg.velocity = []
+        msg.effort = []
+        for pose in joints:
+            x, y, z, qx, qy, qz, qw = pose
+            msg.position.extend([x, y, z])
+            msg.velocity.extend([qx, qy, qz, qw])
+            # effort unused but must match length for some tools
+            # TODO(spec-gap): JointState normally has 1 value per joint. We use
+            # position for xyz (3 per joint) and velocity for quaternion (4 per
+            # joint). This is non-standard but carries the full 6DoF per joint.
+
+        pub.publish(msg)
+
 
 async def ws_loop(node: BridgeNode):
     """Connect to the Quest WS server, receive frames, send commands."""
@@ -218,7 +281,8 @@ async def _recv_loop(ws, node: BridgeNode):
 
         if msg_type == MsgType.CONTROLLER_STATE and len(payload) == CONTROLLER_STATE_SIZE:
             node.publish_controller_state(payload)
-        # HAND_STATE handled in Commit 5
+        if msg_type == MsgType.HAND_STATE and len(payload) == HAND_STATE_SIZE:
+            node.publish_hand_state(payload)
 
 
 async def _send_loop(ws, node: BridgeNode):
