@@ -48,7 +48,7 @@ ros2 topic pub /oculus/haptic/right std_msgs/msg/Float32 "data: 0.8" --once
 |---|---|---|---|---|
 | **Humble** | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Jazzy** | ⬜ | ⬜ | ⬜ | ⬜ |
-| **Kilted** | ⬜ | ⬜ | ⬜ | ⬜ |
+| **Kilted** | ⬜ | ✅ | ⬜ | ⬜ |
 
 ## Dependencies
 

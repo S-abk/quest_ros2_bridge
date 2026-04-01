@@ -45,10 +45,12 @@ static std::atomic<bool> has_frame_{false};
 // CameraPanelTransform — isolated for easy swap to yaw-locked later
 static XrPosef camera_panel_pose() {
     XrPosef pose{};
-    pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};  // Identity rotation
-    // Quest STAGE space has +Z as the user's initial forward direction at
-    // guardian setup. Place the panel 2m forward at eye height.
-    pose.position = {0.0f, 1.5f, 2.0f};
+    // Quest STAGE space has +Z as the user's forward direction (not -Z).
+    // The quad's default normal points along +Z, so placing it at +Z means
+    // it faces away from the user. The 180° yaw (quat {0,1,0,0}) rotates
+    // the quad to face back toward the user.
+    pose.orientation = {0.0f, 1.0f, 0.0f, 0.0f};  // 180° yaw around Y
+    pose.position = {0.0f, 1.5f, 2.0f};            // 2m forward, 1.5m eye height
     return pose;
 }
 

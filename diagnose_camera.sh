@@ -71,7 +71,10 @@ while time.monotonic() - t0 < duration:
     time.sleep(0.1)
 print(f"DONE — published {count} frames total", flush=True)
 node.destroy_node()
-rclpy.shutdown()
+try:
+    rclpy.shutdown()
+except Exception:
+    pass
 PYEOF
 
 # ---------- 2. Subscribe and count received frames ----------
@@ -99,7 +102,10 @@ t.start()
 time.sleep(duration)
 print(f"DONE — received {count} frames total", flush=True)
 node.destroy_node()
-rclpy.shutdown()
+try:
+    rclpy.shutdown()
+except Exception:
+    pass
 PYEOF
 
 # ---------- 3. Tail bridge node for "Enqueuing JPEG" ----------
