@@ -105,7 +105,7 @@ class BridgeNode(Node):
         payload = struct.pack("!Bff", 0, msg.data, 100.0)
         frame = pack_message(MsgType.HAPTIC_CMD, payload)
         try:
-            self._send_queue.put_nowait(frame)
+            self._loop.call_soon_threadsafe(self._send_queue.put_nowait, frame)
         except asyncio.QueueFull:
             pass
 
@@ -144,7 +144,7 @@ class BridgeNode(Node):
 
             frame = pack_message(MsgType.CAMERA_FRAME, jpeg_bytes)
             try:
-                self._send_queue.put_nowait(frame)
+                self._loop.call_soon_threadsafe(self._send_queue.put_nowait, frame)
             except asyncio.QueueFull:
                 pass
 
@@ -157,7 +157,7 @@ class BridgeNode(Node):
         payload = struct.pack("!Bff", 1, msg.data, 100.0)
         frame = pack_message(MsgType.HAPTIC_CMD, payload)
         try:
-            self._send_queue.put_nowait(frame)
+            self._loop.call_soon_threadsafe(self._send_queue.put_nowait, frame)
         except asyncio.QueueFull:
             pass
 
@@ -296,12 +296,12 @@ def main(args=None):
     rclpy.init(args=args)
     node = BridgeNode()
 
-    # Spin rclpy in a background thread
+    loop = asyncio.new_event_loop()
+    node._loop = loop  # must be set before spin thread starts
+
     spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     spin_thread.start()
 
-    # Run the async WS loop in an explicit event loop
-    loop = asyncio.new_event_loop()
     try:
         loop.run_until_complete(ws_loop(node))
     except KeyboardInterrupt:

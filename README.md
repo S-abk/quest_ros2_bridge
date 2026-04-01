@@ -24,10 +24,17 @@ adb shell am start -n com.quest.bridge/.MainActivity
 
 ### ROS 2 (PC)
 ```bash
-cd ros2_bridge
-pip install -e .
+mkdir -p ~/ros2_ws/src
+ln -s $(pwd)/ros2_bridge ~/ros2_ws/src/ros2_bridge
+cd ~/ros2_ws
+colcon build --symlink-install --packages-select ros2_bridge
+source install/setup.bash
+pip install websockets opencv-python --break-system-packages
 ros2 run ros2_bridge bridge_node
 ```
+
+> **Note:** `ros2 run` requires the workspace to be sourced in the same terminal.
+> Run `source install/setup.bash` again in any new terminal.
 
 ### Smoke tests
 ```bash
