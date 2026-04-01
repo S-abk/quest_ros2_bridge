@@ -33,7 +33,6 @@ static XrSwapchain swapchain_ = XR_NULL_HANDLE;
 static XrSwapchainImageOpenGLESKHR swapchain_image_{XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR};
 static int swapchain_w_ = 0;
 static int swapchain_h_ = 0;
-static bool frame_uploaded_ = false;  // true after at least one acquire/upload/release cycle
 
 // Staging buffer for decoded pixels (written from WS thread, read from render thread)
 static std::mutex staging_mutex_;
@@ -59,7 +58,6 @@ static void destroy_swapchain() {
     swapchain_image_ = {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR};
     swapchain_w_ = 0;
     swapchain_h_ = 0;
-    frame_uploaded_ = false;
 }
 
 static bool create_swapchain(int w, int h) {
@@ -77,7 +75,6 @@ static bool create_swapchain(int w, int h) {
 
     XrResult result = xrCreateSwapchain(session_, &info, &swapchain_);
     if (XR_FAILED(result)) {
-        // Fallback: try GL_RGBA8 if the runtime doesn't like SRGB
         LOGW("xrCreateSwapchain GL_SRGB8_ALPHA8 failed (%d), trying GL_RGBA8", result);
         info.format = GL_RGBA8;
         result = xrCreateSwapchain(session_, &info, &swapchain_);
@@ -87,7 +84,6 @@ static bool create_swapchain(int w, int h) {
         }
     }
 
-    // Get the single swapchain image
     uint32_t img_count = 0;
     xrEnumerateSwapchainImages(swapchain_, 0, &img_count, nullptr);
     if (img_count == 0) {
@@ -95,7 +91,6 @@ static bool create_swapchain(int w, int h) {
         destroy_swapchain();
         return false;
     }
-    // We only need the first image (static content swapchain)
     std::vector<XrSwapchainImageOpenGLESKHR> images(
         img_count, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
     xrEnumerateSwapchainImages(swapchain_, img_count, &img_count,
@@ -115,7 +110,6 @@ void init(XrSession session) {
 
 void update_frame(const uint8_t* jpeg_data, size_t jpeg_len) {
     int w, h, channels;
-    // Decode to RGBA (4 channels) to match the SRGB8_ALPHA8 / RGBA8 swapchain
     unsigned char* pixels = stbi_load_from_memory(
         jpeg_data, static_cast<int>(jpeg_len), &w, &h, &channels, 4);
 
@@ -141,32 +135,35 @@ void update_frame(const uint8_t* jpeg_data, size_t jpeg_len) {
 }
 
 bool has_frame() {
-    if (!staging_dirty_.load()) return frame_uploaded_;
+    if (!has_frame_.load()) return false;
 
+    // Ensure swapchain exists (lazy create / recreate on dimension change)
     int w, h;
     {
         std::lock_guard<std::mutex> lock(staging_mutex_);
         w = staging_w_;
         h = staging_h_;
     }
-
-    // Recreate swapchain if dimensions changed or first time
     if (swapchain_ == XR_NULL_HANDLE || w != swapchain_w_ || h != swapchain_h_) {
         destroy_swapchain();
         if (!create_swapchain(w, h)) {
-            staging_dirty_.store(false);
             return false;
         }
     }
 
-    // Acquire → upload → release
+    return true;
+}
+
+bool get_quad_layer(XrCompositionLayerQuad& layer, XrSpace space) {
+    if (swapchain_ == XR_NULL_HANDLE || swapchain_w_ == 0) return false;
+
+    // Acquire swapchain image for this frame
     XrSwapchainImageAcquireInfo acquire_info{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
     uint32_t img_index = 0;
     XrResult result = xrAcquireSwapchainImage(swapchain_, &acquire_info, &img_index);
     if (XR_FAILED(result)) {
         LOGW("xrAcquireSwapchainImage failed: %d", result);
-        staging_dirty_.store(false);
-        return frame_uploaded_;
+        return false;
     }
 
     XrSwapchainImageWaitInfo wait_info{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
@@ -176,12 +173,11 @@ bool has_frame() {
         LOGW("xrWaitSwapchainImage failed: %d", result);
         XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
         xrReleaseSwapchainImage(swapchain_, &release);
-        staging_dirty_.store(false);
-        return frame_uploaded_;
+        return false;
     }
 
-    // Upload pixels to the swapchain's GL texture
-    {
+    // Upload new pixels if the staging buffer has been updated
+    if (staging_dirty_.load()) {
         std::lock_guard<std::mutex> lock(staging_mutex_);
         staging_dirty_.store(false);
 
@@ -191,16 +187,11 @@ bool has_frame() {
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
+    // Release — must happen every frame, whether or not we uploaded
     XrSwapchainImageReleaseInfo release_info{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     xrReleaseSwapchainImage(swapchain_, &release_info);
 
-    frame_uploaded_ = true;
-    return true;
-}
-
-bool get_quad_layer(XrCompositionLayerQuad& layer, XrSpace space) {
-    if (!frame_uploaded_ || swapchain_ == XR_NULL_HANDLE || swapchain_w_ == 0) return false;
-
+    // Populate the quad layer
     layer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
     layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     layer.space = space;
@@ -211,7 +202,6 @@ bool get_quad_layer(XrCompositionLayerQuad& layer, XrSpace space) {
     layer.subImage.imageArrayIndex = 0;
 
     layer.pose = camera_panel_pose();
-    // Size: 1m wide, height preserves aspect ratio
     float aspect = static_cast<float>(swapchain_w_) / static_cast<float>(swapchain_h_);
     layer.size = {1.0f, 1.0f / aspect};
 
@@ -222,7 +212,6 @@ void destroy() {
     destroy_swapchain();
     session_ = XR_NULL_HANDLE;
     has_frame_.store(false);
-    frame_uploaded_ = false;
 }
 
 }  // namespace camera_renderer
