@@ -24,6 +24,7 @@ from .protocol import (
     unpack_header,
     unpack_controller_state,
     unpack_hand_state,
+    pack_scene_config,
 )
 
 HAND_JOINT_NAMES = [
@@ -69,10 +70,12 @@ class BridgeNode(Node):
         self.declare_parameter("jpeg_quality", 80)
         self.declare_parameter("max_width", 640)
         self.declare_parameter("publish_hands", True)
+        self.declare_parameter("show_grid", True)
 
         self._port = self.get_parameter("port").value
 
         self._publish_hands = self.get_parameter("publish_hands").value
+        self._show_grid = self.get_parameter("show_grid").value
 
         # Publishers
         self._pub_left_pose = self.create_publisher(PoseStamped, "/oculus/left/pose", 10)
@@ -145,6 +148,8 @@ class BridgeNode(Node):
             frame = pack_message(MsgType.CAMERA_FRAME, jpeg_bytes)
             try:
                 self._loop.call_soon_threadsafe(self._send_queue.put_nowait, frame)
+                self.get_logger().debug(
+                    f"Enqueuing JPEG {len(jpeg_bytes)}B", throttle_duration_sec=1.0)
             except asyncio.QueueFull:
                 pass
 
@@ -248,6 +253,10 @@ async def ws_loop(node: BridgeNode):
             async with websockets.connect(uri) as ws:
                 node.get_logger().info("Connected")
                 backoff = 1.0
+
+                # Send initial scene config
+                scene_payload = pack_scene_config(node._show_grid)
+                await ws.send(pack_message(MsgType.SCENE_CONFIG, scene_payload))
 
                 # Concurrent recv + send tasks
                 recv_task = asyncio.create_task(_recv_loop(ws, node))

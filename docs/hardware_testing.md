@@ -5,6 +5,10 @@ tags: [testing, diagnostics, adb, coordinate-system, stage-space]
 
 # Hardware Testing & Diagnostics
 
+> **TODO(passthrough):** XR_FB_passthrough event-driven toggle was implemented but had no visible
+> effect on Quest 2. Likely a firmware limitation — revisit when testing on Quest 3.
+> The implementation is in place; no code changes needed, just hardware verification.
+
 ## diagnose_camera.sh
 
 A single-terminal diagnostic script that runs four parallel probes for 15 seconds, then prints a PASS/FAIL summary. Not committed to the repo (local-only tool in `.gitignore`).

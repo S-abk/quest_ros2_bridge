@@ -19,6 +19,7 @@ enum class MsgType : uint8_t {
     HAPTIC_CMD       = 0x02,
     CAMERA_FRAME     = 0x03,
     HAND_STATE       = 0x04,
+    SCENE_CONFIG     = 0x05,
 };
 
 // Size constants
@@ -29,6 +30,7 @@ constexpr size_t CONTROLLER_STATE_SIZE = 64;  // 2 × 32B (left + right)
 constexpr size_t HAND_JOINT_COUNT      = 26;
 constexpr size_t HAND_STATE_SIZE       = 729; // 1B hand + 26 × 28B poses
 constexpr size_t HAPTIC_CMD_SIZE       = 9;   // 1B hand + 4B intensity + 4B duration
+constexpr size_t SCENE_CONFIG_SIZE     = 1;   // 1B show_grid (0=off, 1=on)
 
 // ---------- Byte-order helpers (safe, no UB) ----------
 

@@ -9,6 +9,7 @@ class MsgType(IntEnum):
     HAPTIC_CMD = 0x02
     CAMERA_FRAME = 0x03
     HAND_STATE = 0x04
+    SCENE_CONFIG = 0x05
 
 
 HEADER_SIZE = 5  # 1B type + 4B uint32 length
@@ -17,6 +18,7 @@ CONTROLLER_BLOCK_SIZE = 32  # 4B buttons/triggers + 28B pose
 CONTROLLER_STATE_SIZE = 64  # 2 × 32B (left + right)
 HAND_JOINT_COUNT = 26
 HAND_STATE_SIZE = 729  # 1B hand + 26 × 28B poses
+SCENE_CONFIG_SIZE = 1  # 1B show_grid (0=off, 1=on)
 
 _POSE_FMT = "!7f"  # 7 big-endian float32
 _HEADER_FMT = "!BI"  # 1B msg_type + 4B uint32 length
@@ -112,3 +114,13 @@ def unpack_hand_state(payload: bytes) -> tuple:
         pose = struct.unpack(_POSE_FMT, payload[offset:offset + POSE_SIZE])
         joints.append(pose)
     return hand, joints
+
+
+def pack_scene_config(show_grid: bool) -> bytes:
+    """Pack SCENE_CONFIG payload (1 byte): [1B show_grid]."""
+    return struct.pack("!B", 1 if show_grid else 0)
+
+
+def unpack_scene_config(payload: bytes) -> bool:
+    """Unpack 1-byte SCENE_CONFIG payload → show_grid bool."""
+    return struct.unpack("!B", payload[:1])[0] != 0

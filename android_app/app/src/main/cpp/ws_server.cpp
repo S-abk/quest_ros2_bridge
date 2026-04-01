@@ -6,6 +6,7 @@
 #include "ws_server.h"
 #include "protocol.h"
 #include "camera_renderer.h"
+#include "scene_renderer.h"
 
 #include <libusockets.h>  // us_listen_socket_t, us_listen_socket_close
 #include <App.h>          // uWebSockets
@@ -132,6 +133,10 @@ void Server::run(int port) {
             }
             if (type == protocol::MsgType::CAMERA_FRAME && payload_len > 0) {
                 camera_renderer::update_frame(payload, payload_len);
+            }
+            if (type == protocol::MsgType::SCENE_CONFIG &&
+                payload_len == protocol::SCENE_CONFIG_SIZE) {
+                scene_renderer::set_visible(payload[0] != 0);
             }
         },
         .close = [this](auto* ws, int code, std::string_view message) {

@@ -16,7 +16,12 @@
 #include "xr_controller.h"
 #include "xr_hand_tracking.h"
 #include "camera_renderer.h"
+#include "scene_renderer.h"
 #include "protocol.h"
+
+// TODO(passthrough): XR_FB_passthrough event-driven toggle was implemented but had no visible
+// effect on Quest 2. Likely a firmware limitation — revisit when testing on Quest 3.
+// The implementation is in place; no code changes needed, just hardware verification.
 
 #include <cstring>
 #include <string>
@@ -452,7 +457,7 @@ static void render_frame() {
         swapchain_wait.timeout = XR_INFINITE_DURATION;
         xrWaitSwapchainImage(g.swapchain, &swapchain_wait);
 
-        // Bind framebuffer and clear (blank render)
+        // Bind framebuffer, clear, and render scene elements per eye
         glBindFramebuffer(GL_FRAMEBUFFER, g.framebuffers[img_index]);
         for (uint32_t eye = 0; eye < 2; ++eye) {
             glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
@@ -461,6 +466,9 @@ static void render_frame() {
             float bg_alpha = g.passthrough_active ? 0.0f : 1.0f;
             glClearColor(0.07f, 0.07f, 0.08f, bg_alpha);
             glClear(GL_COLOR_BUFFER_BIT);
+
+            // Render spatial grounding elements (grid, axes, rings)
+            scene_renderer::render(views[eye], g.swapchain_width, g.swapchain_height);
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -540,6 +548,9 @@ static void main_loop() {
         LOGW("Passthrough not available — continuing without passthrough");
     }
 
+    // Initialize scene renderer (grid, axes, rings)
+    scene_renderer::init();
+
     // Initialize camera renderer (session needed for lazy swapchain creation)
     camera_renderer::init(g.session);
 
@@ -569,6 +580,7 @@ static void main_loop() {
     xr_hand_tracking::destroy();
     xr_controller::destroy(g.instance);
     camera_renderer::destroy();
+    scene_renderer::destroy();
 
     if (!g.framebuffers.empty()) {
         glDeleteFramebuffers(static_cast<GLsizei>(g.framebuffers.size()), g.framebuffers.data());

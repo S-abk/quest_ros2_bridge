@@ -24,6 +24,9 @@ from ros2_bridge.protocol import (
     unpack_haptic_cmd,
     pack_hand_state,
     unpack_hand_state,
+    SCENE_CONFIG_SIZE,
+    pack_scene_config,
+    unpack_scene_config,
 )
 
 
@@ -185,3 +188,30 @@ class TestHandState:
     def test_size_constants(self):
         assert HAND_STATE_SIZE == 1 + HAND_JOINT_COUNT * POSE_SIZE
         assert HAND_JOINT_COUNT == 26
+
+
+# ---------------------------------------------------------------------------
+# Tests: SCENE_CONFIG
+# ---------------------------------------------------------------------------
+
+class TestSceneConfig:
+    def test_round_trip_on(self):
+        payload = pack_scene_config(True)
+        assert len(payload) == SCENE_CONFIG_SIZE
+        assert unpack_scene_config(payload) is True
+
+    def test_round_trip_off(self):
+        payload = pack_scene_config(False)
+        assert len(payload) == SCENE_CONFIG_SIZE
+        assert unpack_scene_config(payload) is False
+
+    def test_header_round_trip(self):
+        payload = pack_scene_config(True)
+        from ros2_bridge.protocol import pack_message, unpack_header
+        msg = pack_message(MsgType.SCENE_CONFIG, payload)
+        msg_type, length = unpack_header(msg)
+        assert msg_type == MsgType.SCENE_CONFIG
+        assert length == SCENE_CONFIG_SIZE
+
+    def test_size_constant(self):
+        assert SCENE_CONFIG_SIZE == 1
