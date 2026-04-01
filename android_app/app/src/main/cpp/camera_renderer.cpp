@@ -30,7 +30,7 @@ static XrSession session_ = XR_NULL_HANDLE;
 
 // Swapchain state (render thread only — no mutex needed)
 static XrSwapchain swapchain_ = XR_NULL_HANDLE;
-static XrSwapchainImageOpenGLESKHR swapchain_image_{XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR};
+static std::vector<XrSwapchainImageOpenGLESKHR> swapchain_images_;
 static int swapchain_w_ = 0;
 static int swapchain_h_ = 0;
 
@@ -46,7 +46,9 @@ static std::atomic<bool> has_frame_{false};
 static XrPosef camera_panel_pose() {
     XrPosef pose{};
     pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};  // Identity rotation
-    pose.position = {0.0f, 1.5f, -2.0f};           // 2m forward, eye height
+    // Quest STAGE space has +Z as the user's initial forward direction at
+    // guardian setup. Place the panel 2m forward at eye height.
+    pose.position = {0.0f, 1.5f, 2.0f};
     return pose;
 }
 
@@ -55,7 +57,7 @@ static void destroy_swapchain() {
         xrDestroySwapchain(swapchain_);
         swapchain_ = XR_NULL_HANDLE;
     }
-    swapchain_image_ = {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR};
+    swapchain_images_.clear();
     swapchain_w_ = 0;
     swapchain_h_ = 0;
 }
@@ -84,6 +86,7 @@ static bool create_swapchain(int w, int h) {
         }
     }
 
+    // Enumerate all swapchain images — runtime may return >1 for double/triple buffering
     uint32_t img_count = 0;
     xrEnumerateSwapchainImages(swapchain_, 0, &img_count, nullptr);
     if (img_count == 0) {
@@ -91,15 +94,14 @@ static bool create_swapchain(int w, int h) {
         destroy_swapchain();
         return false;
     }
-    std::vector<XrSwapchainImageOpenGLESKHR> images(
-        img_count, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
+    swapchain_images_.resize(img_count, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
     xrEnumerateSwapchainImages(swapchain_, img_count, &img_count,
-        reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data()));
-    swapchain_image_ = images[0];
+        reinterpret_cast<XrSwapchainImageBaseHeader*>(swapchain_images_.data()));
 
     swapchain_w_ = w;
     swapchain_h_ = h;
-    LOGI("Camera swapchain created: %dx%d (texture=%u)", w, h, swapchain_image_.image);
+    LOGI("Camera swapchain created: %dx%d, %u images (tex0=%u)",
+         w, h, img_count, swapchain_images_[0].image);
     return true;
 }
 
@@ -109,9 +111,14 @@ void init(XrSession session) {
 }
 
 void update_frame(const uint8_t* jpeg_data, size_t jpeg_len) {
+    // Flip vertically on decode: stb_image has Y=0 at top, OpenGL at bottom
+    stbi_set_flip_vertically_on_load(1);
+
     int w, h, channels;
     unsigned char* pixels = stbi_load_from_memory(
         jpeg_data, static_cast<int>(jpeg_len), &w, &h, &channels, 4);
+
+    stbi_set_flip_vertically_on_load(0);
 
     if (!pixels) {
         LOGW("Failed to decode JPEG frame");
@@ -181,7 +188,9 @@ bool get_quad_layer(XrCompositionLayerQuad& layer, XrSpace space) {
         std::lock_guard<std::mutex> lock(staging_mutex_);
         staging_dirty_.store(false);
 
-        glBindTexture(GL_TEXTURE_2D, swapchain_image_.image);
+        // Use the acquired image index — runtime may have multiple backing textures
+        GLuint tex = swapchain_images_[img_index].image;
+        glBindTexture(GL_TEXTURE_2D, tex);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, staging_w_, staging_h_,
                         GL_RGBA, GL_UNSIGNED_BYTE, staging_pixels_.data());
         glBindTexture(GL_TEXTURE_2D, 0);
