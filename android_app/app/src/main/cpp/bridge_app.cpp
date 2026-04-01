@@ -357,7 +357,7 @@ static void render_frame() {
             glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                       g.swapchain_images[img_index].image, 0, eye);
             glViewport(0, 0, g.swapchain_width, g.swapchain_height);
-            glClearColor(0.0f, 0.0f, 0.1f, 1.0f);  // Dark blue
+            glClearColor(0.07f, 0.07f, 0.08f, 1.0f);  // Dark warm grey
             glClear(GL_COLOR_BUFFER_BIT);
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
