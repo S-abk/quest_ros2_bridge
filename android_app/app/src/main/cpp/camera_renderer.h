@@ -13,10 +13,10 @@
 namespace camera_renderer {
 
 /**
- * Initialize GL resources (texture, etc.).
- * Call after EGL context is current.
+ * Initialize and store the session handle for lazy swapchain creation.
+ * Call after EGL context is current and session is created.
  */
-void init();
+void init(XrSession session);
 
 /**
  * Update the texture from a JPEG buffer.
@@ -25,19 +25,22 @@ void init();
 void update_frame(const uint8_t* jpeg_data, size_t jpeg_len);
 
 /**
- * Returns true if at least one camera frame has been received.
+ * Upload staged pixels to the swapchain image if dirty.
+ * Creates or recreates the swapchain lazily on first call / dimension change.
+ * Must be called from the render thread each frame.
+ * Returns true if at least one camera frame has been received and uploaded.
  */
 bool has_frame();
 
 /**
  * Fill out a quad layer for frame submission.
  * Call from the render thread during frame composition.
- * Returns true if the layer was filled (has_frame is true).
+ * Returns true if the layer was filled (swapchain exists, frame uploaded).
  */
 bool get_quad_layer(XrCompositionLayerQuad& layer, XrSpace space);
 
 /**
- * Clean up GL resources.
+ * Clean up swapchain and GL resources.
  */
 void destroy();
 

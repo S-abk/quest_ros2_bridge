@@ -430,8 +430,8 @@ static void main_loop() {
         return;
     }
 
-    // Initialize camera renderer
-    camera_renderer::init();
+    // Initialize camera renderer (session needed for lazy swapchain creation)
+    camera_renderer::init(g.session);
 
     // Initialize controller input
     if (XR_FAILED(xr_controller::init(g.instance, g.session))) {
