@@ -65,6 +65,22 @@ static struct {
     bool session_running = false;
     std::atomic<bool> quit_requested{false};
 
+    // Passthrough (XR_FB_passthrough)
+    bool passthrough_supported = false;
+    bool passthrough_active = false;
+    XrPassthroughFB passthrough = XR_NULL_HANDLE;
+    XrPassthroughLayerFB passthrough_layer = XR_NULL_HANDLE;
+
+    // Function pointers (loaded at runtime)
+    PFN_xrCreatePassthroughFB xrCreatePassthroughFB = nullptr;
+    PFN_xrDestroyPassthroughFB xrDestroyPassthroughFB = nullptr;
+    PFN_xrPassthroughStartFB xrPassthroughStartFB = nullptr;
+    PFN_xrPassthroughPauseFB xrPassthroughPauseFB = nullptr;
+    PFN_xrCreatePassthroughLayerFB xrCreatePassthroughLayerFB = nullptr;
+    PFN_xrDestroyPassthroughLayerFB xrDestroyPassthroughLayerFB = nullptr;
+    PFN_xrPassthroughLayerResumeFB xrPassthroughLayerResumeFB = nullptr;
+    PFN_xrPassthroughLayerPauseFB xrPassthroughLayerPauseFB = nullptr;
+
     ws::Server ws_server;
 } g;
 
@@ -152,6 +168,7 @@ static XrResult create_instance() {
     }
     if (has_ext("XR_FB_passthrough")) {
         enabled_exts.push_back("XR_FB_passthrough");
+        g.passthrough_supported = true;
         LOGI("Passthrough extension available");
     }
 
@@ -249,6 +266,74 @@ static XrResult create_swapchain() {
 }
 
 // ---------------------------------------------------------------------------
+// Passthrough (XR_FB_passthrough)
+// ---------------------------------------------------------------------------
+static bool init_passthrough() {
+    if (!g.passthrough_supported) return false;
+
+    // Load function pointers
+    auto load = [](const char* name, PFN_xrVoidFunction* fn) {
+        return xrGetInstanceProcAddr(g.instance, name, fn) == XR_SUCCESS;
+    };
+
+    if (!load("xrCreatePassthroughFB", (PFN_xrVoidFunction*)&g.xrCreatePassthroughFB) ||
+        !load("xrDestroyPassthroughFB", (PFN_xrVoidFunction*)&g.xrDestroyPassthroughFB) ||
+        !load("xrPassthroughStartFB", (PFN_xrVoidFunction*)&g.xrPassthroughStartFB) ||
+        !load("xrPassthroughPauseFB", (PFN_xrVoidFunction*)&g.xrPassthroughPauseFB) ||
+        !load("xrCreatePassthroughLayerFB", (PFN_xrVoidFunction*)&g.xrCreatePassthroughLayerFB) ||
+        !load("xrDestroyPassthroughLayerFB", (PFN_xrVoidFunction*)&g.xrDestroyPassthroughLayerFB) ||
+        !load("xrPassthroughLayerResumeFB", (PFN_xrVoidFunction*)&g.xrPassthroughLayerResumeFB) ||
+        !load("xrPassthroughLayerPauseFB", (PFN_xrVoidFunction*)&g.xrPassthroughLayerPauseFB)) {
+        LOGW("Failed to load XR_FB_passthrough function pointers");
+        g.passthrough_supported = false;
+        return false;
+    }
+
+    // Create passthrough feature
+    XrPassthroughCreateInfoFB pt_info{XR_TYPE_PASSTHROUGH_CREATE_INFO_FB};
+    XrResult result = g.xrCreatePassthroughFB(g.session, &pt_info, &g.passthrough);
+    if (XR_FAILED(result)) {
+        LOGW("xrCreatePassthroughFB failed: %d", result);
+        g.passthrough_supported = false;
+        return false;
+    }
+
+    // Create full-screen passthrough layer (starts paused)
+    XrPassthroughLayerCreateInfoFB layer_info{XR_TYPE_PASSTHROUGH_LAYER_CREATE_INFO_FB};
+    layer_info.passthrough = g.passthrough;
+    layer_info.purpose = XR_PASSTHROUGH_LAYER_PURPOSE_RECONSTRUCTION_FB;
+    result = g.xrCreatePassthroughLayerFB(g.session, &layer_info, &g.passthrough_layer);
+    if (XR_FAILED(result)) {
+        LOGW("xrCreatePassthroughLayerFB failed: %d", result);
+        g.xrDestroyPassthroughFB(g.passthrough);
+        g.passthrough = XR_NULL_HANDLE;
+        g.passthrough_supported = false;
+        return false;
+    }
+
+    // Start passthrough and resume the layer — the system compositor controls
+    // visibility based on the user's passthrough toggle in quick settings.
+    g.xrPassthroughStartFB(g.passthrough);
+    g.xrPassthroughLayerResumeFB(g.passthrough_layer);
+    g.passthrough_active = true;
+
+    LOGI("Passthrough initialized and active");
+    return true;
+}
+
+static void destroy_passthrough() {
+    if (g.passthrough_layer != XR_NULL_HANDLE && g.xrDestroyPassthroughLayerFB) {
+        g.xrDestroyPassthroughLayerFB(g.passthrough_layer);
+        g.passthrough_layer = XR_NULL_HANDLE;
+    }
+    if (g.passthrough != XR_NULL_HANDLE && g.xrDestroyPassthroughFB) {
+        g.xrDestroyPassthroughFB(g.passthrough);
+        g.passthrough = XR_NULL_HANDLE;
+    }
+    g.passthrough_active = false;
+}
+
+// ---------------------------------------------------------------------------
 // Event handling
 // ---------------------------------------------------------------------------
 static void handle_session_state_change(XrSessionState state) {
@@ -276,6 +361,15 @@ static void poll_events() {
         if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
             auto* sse = reinterpret_cast<XrEventDataSessionStateChanged*>(&event);
             handle_session_state_change(sse->state);
+        } else if (event.type == XR_TYPE_EVENT_DATA_PASSTHROUGH_STATE_CHANGED_FB &&
+                   g.passthrough_supported) {
+            auto* psc = reinterpret_cast<XrEventDataPassthroughStateChangedFB*>(&event);
+            if (psc->flags & XR_PASSTHROUGH_STATE_CHANGED_REINIT_REQUIRED_BIT_FB) {
+                // Passthrough needs reinit — destroy and recreate
+                LOGI("Passthrough reinit required");
+                destroy_passthrough();
+                init_passthrough();
+            }
         }
         event = {XR_TYPE_EVENT_DATA_BUFFER};
     }
@@ -327,6 +421,13 @@ static void render_frame() {
 
     std::vector<XrCompositionLayerBaseHeader*> layers;
 
+    // Add passthrough as the first (bottom) layer if active
+    XrCompositionLayerPassthroughFB passthrough_comp_layer{XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB};
+    if (g.passthrough_active && g.passthrough_layer != XR_NULL_HANDLE) {
+        passthrough_comp_layer.layerHandle = g.passthrough_layer;
+        layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&passthrough_comp_layer));
+    }
+
     XrCompositionLayerProjection projection_layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     std::vector<XrCompositionLayerProjectionView> projection_views;
 
@@ -357,7 +458,8 @@ static void render_frame() {
             glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                       g.swapchain_images[img_index].image, 0, eye);
             glViewport(0, 0, g.swapchain_width, g.swapchain_height);
-            glClearColor(0.07f, 0.07f, 0.08f, 1.0f);  // Dark warm grey
+            float bg_alpha = g.passthrough_active ? 0.0f : 1.0f;
+            glClearColor(0.07f, 0.07f, 0.08f, bg_alpha);
             glClear(GL_COLOR_BUFFER_BIT);
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -382,6 +484,9 @@ static void render_frame() {
         projection_layer.space = g.app_space;
         projection_layer.viewCount = 2;
         projection_layer.views = projection_views.data();
+        if (g.passthrough_active) {
+            projection_layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        }
         layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&projection_layer));
     }
 
@@ -430,6 +535,11 @@ static void main_loop() {
         return;
     }
 
+    // Initialize passthrough (optional — continues without it if unavailable)
+    if (!init_passthrough()) {
+        LOGW("Passthrough not available — continuing without passthrough");
+    }
+
     // Initialize camera renderer (session needed for lazy swapchain creation)
     camera_renderer::init(g.session);
 
@@ -455,6 +565,7 @@ static void main_loop() {
 
     // Cleanup
     g.ws_server.stop();
+    destroy_passthrough();
     xr_hand_tracking::destroy();
     xr_controller::destroy(g.instance);
     camera_renderer::destroy();
