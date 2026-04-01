@@ -1,12 +1,33 @@
-# Android build artifacts
-local.properties
+# Claude Code / project meta (keep local, never publish)
+CLAUDE.md
+DEPENDENCY_VERSIONS.md
+diagnose_camera.sh
+
+# Android
+android_app/local.properties
 android_app/.gradle/
 android_app/app/build/
 android_app/app/.cxx/
 android_app/build/
+android_app/.idea/
+*.iml
+*.apk
+*.aab
+*.keystore
 
-# Python
-__pycache__/
-*.pyc
-*.egg-info/
-.pytest_cache/
+# Python / ROS 2
+ros2_bridge/__pycache__/
+ros2_bridge/**/__pycache__/
+ros2_bridge/*.egg-info/
+ros2_bridge/.pytest_cache/
+ros2_ws/
+build/
+install/
+log/
+
+# General
+.env
+*.log
+/tmp/
+.DS_Store
+Thumbs.db
